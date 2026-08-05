@@ -26,7 +26,7 @@ struct ContentView: View {
                         CaptureRowView(
                             item: item,
                             imageURL: model.imageURL(for: item),
-                            onRetry: {}   // wired to the upload manager in Step 6
+                            onRetry: { Task { await model.retry(id: item.id) } }
                         )
                     }
                     .listStyle(.plain)
@@ -51,7 +51,7 @@ struct ContentView: View {
             }
         }
         .task {
-            await model.load()
+            await model.start()
             await AppLaunch.seedIfRequested(into: model)
         }
         .onChange(of: pickerItem) { _, newItem in

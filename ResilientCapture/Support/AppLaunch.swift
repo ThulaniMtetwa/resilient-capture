@@ -32,7 +32,8 @@ enum AppLaunch {
         } else {
             store = FileCaptureQueueStore.makeDefault()
         }
-        return CaptureQueueModel(store: store)
+        let transport = BackgroundUploadTransport(endpoint: AppConfig.uploadEndpoint)
+        return CaptureQueueModel(store: store, transport: transport)
     }
 
     /// If requested via launch flag, seed sample captures so the queue can be

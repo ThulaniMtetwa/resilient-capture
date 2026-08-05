@@ -24,6 +24,11 @@ protocol CaptureQueueStore: Sendable {
     /// fatal, so one bad sidecar can't sink the whole queue on launch.
     func loadAll() async throws -> [CaptureItem]
 
+    /// Load a single record by id, or `nil` if it's missing/unreadable. Used by
+    /// the upload manager to re-read an item's current persisted state before a
+    /// transition (never trusting stale in-memory copies).
+    func load(id: UUID) async -> CaptureItem?
+
     /// Upsert an item's metadata (same `id` overwrites). Atomic per record.
     func update(_ item: CaptureItem) async throws
 

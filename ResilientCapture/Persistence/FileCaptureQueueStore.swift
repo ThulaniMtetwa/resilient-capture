@@ -104,6 +104,12 @@ actor FileCaptureQueueStore: CaptureQueueStore {
         return items.sorted { $0.createdAt < $1.createdAt }
     }
 
+    func load(id: UUID) async -> CaptureItem? {
+        let url = itemsDirectory.appendingPathComponent("\(id.uuidString).json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? decoder.decode(CaptureItem.self, from: data)
+    }
+
     func update(_ item: CaptureItem) async throws {
         try ensureDirectories()
         try writeMetadata(item)
