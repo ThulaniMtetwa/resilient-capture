@@ -245,6 +245,40 @@ additionally handles the background-events completion handler
 (`urlSessionDidFinishEvents`), wired through so a real device can be woken to
 flush completions.
 
+## Security: data at rest
+
+The payload is identity documents and selfies, so captures are protected on disk.
+
+- **Encryption at rest.** `CaptureCrypto` seals image bytes with AES-256-GCM
+  before the store writes them, so the persisted `.enc` files are ciphertext
+  (verified: an on-disk capture does not start with the JPEG magic bytes). GCM is
+  authenticated, so tampered ciphertext fails to open rather than decrypting to
+  garbage. Metadata sidecars are left in clear text deliberately: they hold no PII
+  (a random UUID, a state, timestamps, and a short error string).
+- **Key management.** The 256-bit key is created once and stored in the Keychain
+  as `afterFirstUnlockThisDeviceOnly`: available for background uploads after the
+  first unlock since boot, never synced to iCloud Keychain, and never in backups.
+  A device backup therefore contains only ciphertext with no key to open it.
+  Unsigned builds have no Keychain entitlement, so `CaptureKeyProvider` falls back
+  to a Data-Protected, backup-excluded key file; signed builds always use the
+  Keychain.
+- **iOS Data Protection.** Every write carries
+  `completeUntilFirstUserAuthentication`, which keeps files encrypted until first
+  unlock while still allowing locked-state background uploads. Stricter
+  `.complete` would block locked uploads, which conflicts with the whole point of
+  the app. The queue directory is also excluded from iCloud/iTunes backup.
+- **Decrypt only in a narrow window.** A background upload must send from a file,
+  so the store writes a short-lived decrypted temp file for the transport, which
+  the manager deletes on completion. A launch-time purge removes any temp left by
+  a previous run that was killed mid-upload, so plaintext never lingers.
+- **Data minimisation.** Once an upload is confirmed, the local image bytes are
+  erased and only the metadata receipt is kept. This shrinks the at-rest exposure
+  window for a delivered identity image to nearly zero.
+
+These are verified by unit tests (ciphertext on disk, wrong-key cannot open,
+tamper rejected, minimisation erases bytes but keeps the receipt) and by an
+end-to-end run.
+
 ## Testing strategy
 
 - **Unit tests target the logic that matters**, behind the seams: the store
@@ -265,8 +299,10 @@ flush completions.
 - **Standard `URLSession` in the Simulator** (discussed above): pragmatic, so the
   full pipeline is demonstrable without a device, at the cost of not exercising
   OS-continued suspended transfers in this environment.
-- **No encryption at rest.** Captures are plain files. Correct for a proof of
-  concept, but identity images in production should be encrypted (see below).
+- **Encryption key fallback in unsigned builds.** The key belongs in the
+  Keychain; an unsigned Simulator build cannot use it, so a Data-Protected key
+  file stands in. Signed builds always use the Keychain. Chosen so the proof of
+  concept runs without a signing identity.
 - **A single foreground `resume()` can cause one redundant, deduplicated
   request** on cold launch. Chosen over adding coordination, because idempotency
   already makes it correct and cheap.
@@ -278,10 +314,20 @@ flush completions.
 
 ## Future work
 
-- Encrypt captures at rest (for example a per-item key in the Keychain, or
-  `FileProtectionType.complete`).
+Security, in priority order:
+
+- **Transport hardening**: TLS only, certificate/public-key pinning in the
+  `URLSession` auth challenge, and an `Authorization: Bearer` token from the
+  Keychain. Optionally App Attest so the backend only accepts genuine app
+  instances.
+- **Backgrounding privacy screen**: cover the UI on `scenePhase .inactive` so an
+  identity thumbnail cannot leak into the app-switcher snapshot.
+- **Biometric gate** (LocalAuthentication) to open the queue.
+
+Other:
+
 - Move to the Swift 6 language mode and remove the `@unchecked Sendable`
   annotations where the compiler can then prove safety.
-- Add the real multipart envelope and auth headers the production backend expects.
-- Surface a small storage budget and pruning policy for `uploaded` items.
+- Add the real multipart envelope the production backend expects.
+- Surface a small storage budget and pruning policy for metadata receipts.
 - Add a couple of XCUITest flows for the capture and manual-retry paths.

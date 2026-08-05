@@ -40,7 +40,7 @@ struct ContentView: View {
                         List(model.items) { item in
                             CaptureRowView(
                                 item: item,
-                                imageURL: model.imageURL(for: item),
+                                loadThumbnail: { await model.thumbnail(for: item) },
                                 onRetry: { Task { await model.retry(id: item.id) } }
                             )
                         }

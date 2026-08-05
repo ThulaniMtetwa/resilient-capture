@@ -16,7 +16,7 @@ final class UploadManagerTests: XCTestCase {
     override func setUp() async throws {
         rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("MgrTests-\(UUID().uuidString)", isDirectory: true)
-        store = FileCaptureQueueStore(rootURL: rootURL)
+        store = FileCaptureQueueStore(rootURL: rootURL, crypto: TestCrypto.make())
         transport = FakeUploadTransport()
         manager = UploadManager(store: store, transport: transport, policy: fastPolicy)
     }
@@ -63,6 +63,22 @@ final class UploadManagerTests: XCTestCase {
 
         await waitUntil("uploaded") { await self.state(of: item.id) == .uploaded }
         XCTAssertEqual(transport.enqueueCount(for: item.id), 1)
+    }
+
+    func testConfirmedUploadMinimisesImageBytes() async throws {
+        transport.handler = { _, _ in .success }
+        manager.start()
+        let item = try await makePending()
+
+        await manager.enqueueNew(item)
+
+        await waitUntil("uploaded") { await self.state(of: item.id) == .uploaded }
+        // Data minimisation: the local image bytes are erased once delivery is
+        // confirmed, but the metadata receipt remains.
+        let imageGone = await store.imageData(for: item) == nil
+        XCTAssertTrue(imageGone, "Image bytes must be erased after a confirmed upload")
+        let record = await store.load(id: item.id)
+        XCTAssertEqual(record?.state, .uploaded, "Metadata receipt must remain")
     }
 
     // MARK: - Retry then success (the core retry/resume behaviour)

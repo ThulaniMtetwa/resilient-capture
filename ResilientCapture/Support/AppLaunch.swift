@@ -35,7 +35,7 @@ enum AppLaunch {
         if isUITesting {
             let dir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("UITestQueue-\(UUID().uuidString)", isDirectory: true)
-            store = FileCaptureQueueStore(rootURL: dir)
+            store = FileCaptureQueueStore(rootURL: dir, crypto: CaptureCrypto(key: CaptureKeyProvider.loadOrCreateKey(rootURL: dir)))
         } else {
             store = FileCaptureQueueStore.makeDefault()
         }

@@ -68,6 +68,29 @@ backoff math, and the retry/resume/reconciliation/connectivity state machine.
 The user is kept informed with a small, non-invasive status banner (offline,
 uploading N, N failed, all uploaded) that also notes Cellular / Low Data Mode.
 
+## Security
+
+Because the payload is identity documents and selfies, the captures are protected
+at rest:
+
+- **Encrypted at rest.** Image bytes are sealed with AES-256-GCM (CryptoKit)
+  before they touch disk, so the stored files are ciphertext. The key lives in
+  the **Keychain** (`afterFirstUnlockThisDeviceOnly`, so it never syncs to iCloud
+  and is never in backups), with a Data-Protected key-file fallback for unsigned
+  builds.
+- **iOS Data Protection** (`completeUntilFirstUserAuthentication`) on every write,
+  and the queue directory is **excluded from iCloud/iTunes backup**.
+- **Data minimisation.** Once an upload is confirmed, the local image bytes are
+  **erased**, keeping only a metadata receipt. Delivered identity images do not
+  linger on the device.
+- Since a background upload must send from a file, the store vends a short-lived
+  **decrypted** temp file for the transport, deleted on completion and purged on
+  launch, so plaintext exists only during an active upload.
+
+Transport hardening (TLS pinning, auth tokens), a backgrounding privacy screen,
+and a biometric gate are designed but not yet implemented (see DESIGN.md, Future
+work). See DESIGN.md, "Security: data at rest", for the full rationale.
+
 ## Project structure
 
 ```
@@ -98,8 +121,12 @@ model, and the trade-offs made within the time box.
   resilience guarantees for the scenarios above, which come from the durable
   store, launch reconciliation, and server idempotency rather than from the OS
   continuing a suspended transfer. See DESIGN.md for detail.
-- **Captures are stored unencrypted** in the app's Documents directory. For
-  production, identity images should be encrypted at rest (see DESIGN.md, Future
-  work).
+- **The Keychain needs a signed build.** An unsigned Simulator build has no
+  entitlement for the Keychain, so the encryption key falls back to a
+  Data-Protected key file. A normal signed run (Xcode Run, or device) uses the
+  Keychain. This is a build-environment limitation, not a design one.
+- **Transport security is not yet hardened.** The mock uses plain http on
+  localhost; production needs TLS with certificate pinning and an auth token
+  (designed, see DESIGN.md).
 - **The mock backend keeps state in memory** and resets on restart. It is a test
   stub, not a real service.

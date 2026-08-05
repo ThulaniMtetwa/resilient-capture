@@ -39,11 +39,12 @@ enum CaptureImageProcessor {
         return output as Data
     }
 
-    /// Load a small thumbnail from an image file without decoding it at full size.
-    /// Used to render list rows cheaply.
-    static func thumbnail(fromFileAt url: URL, maxPixelSize: CGFloat = 300) -> UIImage? {
+    /// Load a small thumbnail from in-memory (decrypted) image bytes without
+    /// decoding at full size. Used to render list rows cheaply; the bytes are the
+    /// decrypted capture, so plaintext never touches disk for a thumbnail.
+    static func thumbnail(from data: Data, maxPixelSize: CGFloat = 300) -> UIImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
         guard let cgImage = Self.thumbnail(from: source, maxPixelSize: maxPixelSize) else { return nil }
         return UIImage(cgImage: cgImage)
     }

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 /// The view-facing source of truth for the capture queue.
 ///
@@ -47,6 +48,10 @@ final class CaptureQueueModel {
     /// Bring the pipeline to life: start consuming outcomes, seed the manager
     /// with the current connectivity, hydrate from disk, then reconcile + resume.
     func start() async {
+        // Remove any decrypted temp files left by a previous launch that was
+        // killed mid-upload, so plaintext never lingers.
+        await store.purgeUploadTemp()
+
         uploadManager.start()
 
         // Seed connectivity synchronously so `resume()` knows whether it's online.
@@ -95,9 +100,14 @@ final class CaptureQueueModel {
         await uploadManager.retry(id: id)
     }
 
-    /// File URL of an item's image, for rendering.
-    func imageURL(for item: CaptureItem) -> URL {
-        store.imageURL(for: item)
+    /// A decrypted thumbnail for a row, decoded off the main actor. Returns `nil`
+    /// once an item's image has been minimised away after upload. Plaintext exists
+    /// only in memory here, never on disk.
+    func thumbnail(for item: CaptureItem) async -> UIImage? {
+        guard let data = await store.imageData(for: item) else { return nil }
+        return await Task.detached(priority: .utility) {
+            CaptureImageProcessor.thumbnail(from: data)
+        }.value
     }
 
     // MARK: - Derived UI state

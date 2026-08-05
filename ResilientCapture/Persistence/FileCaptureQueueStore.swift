@@ -1,36 +1,48 @@
 import Foundation
 import os
 
-/// Filesystem-backed `CaptureQueueStore`.
+/// Filesystem-backed `CaptureQueueStore` with encryption at rest.
 ///
 /// **Layout** (under an injected root directory):
 /// ```
-/// <root>/images/<uuid>.jpg     ← raw capture bytes
-/// <root>/items/<uuid>.json     ← metadata sidecar (state, attempts, timestamps)
+/// <root>/images/<uuid>.enc      AES-GCM ciphertext of the capture bytes
+/// <root>/items/<uuid>.json      metadata sidecar (no PII: id, state, timestamps)
+/// <root>/uploads/<uuid>.jpg     transient DECRYPTED file for an in-flight upload
 /// ```
 ///
-/// **Why per-item sidecars rather than one manifest.** Each record is independent,
-/// so a write for one item can never corrupt another, and a single unreadable file
-/// costs one capture instead of the whole queue. It also means concurrent updates
-/// to different items don't contend on a shared file.
+/// **Security posture.** Image bytes are encrypted with `CaptureCrypto` before
+/// they ever touch disk, so the persisted `.enc` files are ciphertext. Metadata
+/// is left in clear text because it holds no PII (a random UUID, a state, and
+/// timestamps). All writes additionally carry iOS Data Protection
+/// (`completeUntilFirstUserAuthentication`) and the queue directory is excluded
+/// from iCloud/iTunes backup. Decryption to a temp file happens only for the
+/// brief window of an active upload, and that directory is purged on launch.
 ///
-/// **Why an `actor`.** The upload manager mutates item state from background tasks
-/// while the UI reads the queue. Making the store an actor serialises all access
-/// without manual locks, and every file write uses `.atomic` (write-to-temp +
-/// rename) so a crash mid-write leaves either the old bytes or the new - never a
-/// half-written record.
+/// **Why an `actor`.** The upload manager mutates item state from background
+/// tasks while the UI reads the queue. Serialising through an actor removes races
+/// without manual locks; every write is `.atomic` (write-temp + rename).
 actor FileCaptureQueueStore: CaptureQueueStore {
     private let rootURL: URL
     private let fileManager: FileManager
+    private let crypto: CaptureCrypto
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let log = Logger(subsystem: "com.iidentifii.resilientcapture", category: "store")
 
     private var itemsDirectory: URL { rootURL.appendingPathComponent("items", isDirectory: true) }
     private var imagesDirectory: URL { rootURL.appendingPathComponent("images", isDirectory: true) }
+    private var uploadsDirectory: URL { rootURL.appendingPathComponent("uploads", isDirectory: true) }
 
-    init(rootURL: URL, fileManager: FileManager = .default) {
+    /// Data Protection class applied to every write. `completeUntilFirstUserAuthentication`
+    /// keeps files encrypted until the first unlock after boot, then readable for
+    /// background work (including while the screen is locked), which the
+    /// background-upload use case requires. Stricter `.complete` would block
+    /// locked-state uploads.
+    private let writeOptions: Data.WritingOptions = [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+
+    init(rootURL: URL, crypto: CaptureCrypto, fileManager: FileManager = .default) {
         self.rootURL = rootURL
+        self.crypto = crypto
         self.fileManager = fileManager
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -41,10 +53,13 @@ actor FileCaptureQueueStore: CaptureQueueStore {
         self.decoder = decoder
     }
 
-    /// The production store, rooted at `Documents/CaptureQueue`.
+    /// The production store, rooted at `Documents/CaptureQueue`, keyed from the
+    /// Keychain (with a protected key-file fallback for unsigned builds).
     static func makeDefault() -> FileCaptureQueueStore {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return FileCaptureQueueStore(rootURL: documents.appendingPathComponent("CaptureQueue", isDirectory: true))
+        let root = documents.appendingPathComponent("CaptureQueue", isDirectory: true)
+        let key = CaptureKeyProvider.loadOrCreateKey(rootURL: root)
+        return FileCaptureQueueStore(rootURL: root, crypto: CaptureCrypto(key: key))
     }
 
     // MARK: - CaptureQueueStore
@@ -53,16 +68,16 @@ actor FileCaptureQueueStore: CaptureQueueStore {
     func writeCapture(id: UUID, imageData: Data, createdAt: Date) async throws -> CaptureItem {
         try ensureDirectories()
 
-        let fileName = "\(id.uuidString).jpg"
+        let fileName = "\(id.uuidString).enc"
         let imageURL = imagesDirectory.appendingPathComponent(fileName)
 
-        // 1. Persist the image bytes first, atomically. This is the point of no
-        //    return for "capture completed": once these bytes are on disk the
-        //    work is recoverable even if the process dies on the next line.
-        try imageData.write(to: imageURL, options: [.atomic])
+        // 1. Encrypt, then persist the ciphertext first, atomically. Once these
+        //    bytes are on disk the capture is recoverable even if we die next line.
+        let ciphertext = try crypto.seal(imageData)
+        try ciphertext.write(to: imageURL, options: writeOptions)
 
-        // 2. Persist the metadata record marking the item `pending`. If this
-        //    fails, roll back the image so we never leave an orphan behind.
+        // 2. Persist the metadata record marking the item `pending`. On failure,
+        //    roll back the image so we never leave an orphan behind.
         let item = CaptureItem(
             id: id,
             imageFileName: fileName,
@@ -76,29 +91,23 @@ actor FileCaptureQueueStore: CaptureQueueStore {
             try writeMetadata(item)
         } catch {
             try? fileManager.removeItem(at: imageURL)
-            log.error("Rolled back image for \(id.uuidString, privacy: .public) after metadata write failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Rolled back image for \(id.uuidString, privacy: .public) after metadata write failed")
             throw error
         }
-        log.debug("Persisted capture \(id.uuidString, privacy: .public) as pending")
         return item
     }
 
     func loadAll() async throws -> [CaptureItem] {
         try ensureDirectories()
-        let urls = try fileManager.contentsOfDirectory(
-            at: itemsDirectory,
-            includingPropertiesForKeys: nil
-        ).filter { $0.pathExtension == "json" }
-
+        let urls = try fileManager.contentsOfDirectory(at: itemsDirectory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "json" }
         var items: [CaptureItem] = []
         for url in urls {
             do {
                 let data = try Data(contentsOf: url)
                 items.append(try decoder.decode(CaptureItem.self, from: data))
             } catch {
-                // A corrupt sidecar must not sink the whole queue. Skip it and
-                // keep going; the orphaned image (if any) can be recovered later.
-                log.error("Skipping unreadable record \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                log.error("Skipping unreadable record \(url.lastPathComponent, privacy: .public)")
             }
         }
         return items.sorted { $0.createdAt < $1.createdAt }
@@ -116,21 +125,36 @@ actor FileCaptureQueueStore: CaptureQueueStore {
     }
 
     func delete(id: UUID) async throws {
-        let itemURL = itemsDirectory.appendingPathComponent("\(id.uuidString).json")
-        let imageURL = imagesDirectory.appendingPathComponent("\(id.uuidString).jpg")
-        try? fileManager.removeItem(at: itemURL)
-        try? fileManager.removeItem(at: imageURL)
+        try? fileManager.removeItem(at: itemsDirectory.appendingPathComponent("\(id.uuidString).json"))
+        try? fileManager.removeItem(at: imagesDirectory.appendingPathComponent("\(id.uuidString).enc"))
     }
 
-    func imageData(for item: CaptureItem) async throws -> Data {
-        try Data(contentsOf: imageURL(for: item))
+    func imageData(for item: CaptureItem) async -> Data? {
+        let url = imagesDirectory.appendingPathComponent(item.imageFileName)
+        guard let ciphertext = try? Data(contentsOf: url) else { return nil }
+        return try? crypto.open(ciphertext)
     }
 
-    nonisolated func imageURL(for item: CaptureItem) -> URL {
-        // `rootURL` is immutable, so this is safe to compute without actor isolation.
-        rootURL
-            .appendingPathComponent("images", isDirectory: true)
-            .appendingPathComponent(item.imageFileName)
+    func makeDecryptedUploadFile(for item: CaptureItem) async throws -> URL {
+        try ensureDirectories()
+        let ciphertext = try Data(contentsOf: imagesDirectory.appendingPathComponent(item.imageFileName))
+        let plaintext = try crypto.open(ciphertext)
+        let url = uploadsDirectory.appendingPathComponent("\(item.id.uuidString).jpg")
+        try plaintext.write(to: url, options: writeOptions)
+        return url
+    }
+
+    func discardUploadFile(at url: URL) async {
+        try? fileManager.removeItem(at: url)
+    }
+
+    func discardCaptureImage(for id: UUID) async {
+        try? fileManager.removeItem(at: imagesDirectory.appendingPathComponent("\(id.uuidString).enc"))
+    }
+
+    func purgeUploadTemp() async {
+        guard let contents = try? fileManager.contentsOfDirectory(at: uploadsDirectory, includingPropertiesForKeys: nil) else { return }
+        for url in contents { try? fileManager.removeItem(at: url) }
     }
 
     // MARK: - Private
@@ -138,11 +162,21 @@ actor FileCaptureQueueStore: CaptureQueueStore {
     private func writeMetadata(_ item: CaptureItem) throws {
         let url = itemsDirectory.appendingPathComponent("\(item.id.uuidString).json")
         let data = try encoder.encode(item)
-        try data.write(to: url, options: [.atomic])
+        try data.write(to: url, options: writeOptions)
     }
 
     private func ensureDirectories() throws {
         try fileManager.createDirectory(at: itemsDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: uploadsDirectory, withIntermediateDirectories: true)
+        excludeRootFromBackup()
+    }
+
+    /// Keep identity images out of iCloud/iTunes backups.
+    private func excludeRootFromBackup() {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var url = rootURL
+        try? url.setResourceValues(values)
     }
 }

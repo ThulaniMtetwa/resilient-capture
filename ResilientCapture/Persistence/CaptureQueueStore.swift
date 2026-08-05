@@ -11,22 +11,22 @@ import Foundation
 /// image bytes and a `pending` metadata record must both be on disk *before the
 /// method returns* and *before any network call is made*, so a crash at any later
 /// point can never lose a completed capture.
+///
+/// Image bytes are stored **encrypted at rest**. Because a background upload must
+/// send from a file, the store also vends a short-lived *decrypted* temp file for
+/// the transport (`makeDecryptedUploadFile`), which the caller discards once the
+/// upload finishes.
 protocol CaptureQueueStore: Sendable {
-    /// Atomically persist a freshly captured image and its metadata as `pending`.
-    ///
-    /// Writes the image bytes first, then the metadata record. If the metadata
-    /// write fails the image is rolled back so no orphan is left behind. Returns
-    /// the persisted item so the caller never fabricates state the disk doesn't have.
+    /// Atomically persist a freshly captured image (encrypted) and its metadata
+    /// as `pending`. Writes the image first, then the metadata; on metadata
+    /// failure the image is rolled back so no orphan is left behind.
     @discardableResult
     func writeCapture(id: UUID, imageData: Data, createdAt: Date) async throws -> CaptureItem
 
-    /// Load every persisted item, oldest first. Corrupt records are skipped, not
-    /// fatal, so one bad sidecar can't sink the whole queue on launch.
+    /// Load every persisted item, oldest first. Corrupt records are skipped.
     func loadAll() async throws -> [CaptureItem]
 
-    /// Load a single record by id, or `nil` if it's missing/unreadable. Used by
-    /// the upload manager to re-read an item's current persisted state before a
-    /// transition (never trusting stale in-memory copies).
+    /// Load a single record by id, or `nil` if missing/unreadable.
     func load(id: UUID) async -> CaptureItem?
 
     /// Upsert an item's metadata (same `id` overwrites). Atomic per record.
@@ -35,9 +35,23 @@ protocol CaptureQueueStore: Sendable {
     /// Remove an item's metadata and its image bytes.
     func delete(id: UUID) async throws
 
-    /// Read the image bytes for an item (used by the uploader).
-    func imageData(for item: CaptureItem) async throws -> Data
+    /// The **decrypted** image bytes for an item (used to render thumbnails).
+    /// Returns `nil` if the image has been minimised away after upload.
+    func imageData(for item: CaptureItem) async -> Data?
 
-    /// The on-disk location of an item's image (used by the UI to render thumbnails).
-    func imageURL(for item: CaptureItem) -> URL
+    /// Write the decrypted image to a short-lived, Data-Protected temp file and
+    /// return its URL, for the transport to upload from. Caller must call
+    /// `discardUploadFile` once the upload finishes.
+    func makeDecryptedUploadFile(for item: CaptureItem) async throws -> URL
+
+    /// Delete a temp upload file created by `makeDecryptedUploadFile`.
+    func discardUploadFile(at url: URL) async
+
+    /// Delete only the (encrypted) image bytes for an item, keeping its metadata
+    /// record as a receipt. Used to minimise data once an upload is confirmed.
+    func discardCaptureImage(for id: UUID) async
+
+    /// Remove any leftover decrypted temp files (e.g. from a previous launch that
+    /// was killed mid-upload). Call once at startup.
+    func purgeUploadTemp() async
 }

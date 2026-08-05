@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// Renders a small thumbnail for a captured image file.
+/// Renders a small thumbnail for a captured image.
 ///
-/// Decoding happens off the main thread via `CaptureImageProcessor` (ImageIO
-/// downsampling), so a list of large captures never blocks scrolling or holds
-/// full-resolution bitmaps in memory. `.task(id:)` re-loads if the URL changes
-/// and cancels automatically when the row scrolls away.
+/// The image is provided by an async loader (which decrypts and downsamples off
+/// the main actor), so a list of large captures never blocks scrolling, and
+/// plaintext bytes live only in memory. `.task(id:)` reloads if the identity
+/// changes and cancels when the row scrolls away. Shows a placeholder when the
+/// image is absent (for example after it has been minimised away post-upload).
 struct ThumbnailView: View {
-    let url: URL
-    var maxPixelSize: CGFloat = 300
+    let reloadKey: AnyHashable
+    let load: () async -> UIImage?
 
     @State private var image: UIImage?
 
@@ -28,13 +29,8 @@ struct ThumbnailView: View {
             }
         }
         .clipped()
-        .task(id: url) {
-            // Decode off the main actor; `thumbnail` is a pure function.
-            let size = maxPixelSize
-            let decoded = await Task.detached(priority: .utility) {
-                CaptureImageProcessor.thumbnail(fromFileAt: url, maxPixelSize: size)
-            }.value
-            image = decoded
+        .task(id: reloadKey) {
+            image = await load()
         }
     }
 }

@@ -8,12 +8,12 @@ import SwiftUI
 /// and previewable.
 struct CaptureRowView: View {
     let item: CaptureItem
-    let imageURL: URL
+    let loadThumbnail: () async -> UIImage?
     let onRetry: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            ThumbnailView(url: imageURL)
+            ThumbnailView(reloadKey: "\(item.id)-\(item.state.rawValue)", load: loadThumbnail)
                 .frame(width: 52, height: 52)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 

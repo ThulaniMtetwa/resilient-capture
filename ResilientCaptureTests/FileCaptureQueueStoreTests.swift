@@ -19,7 +19,13 @@ final class FileCaptureQueueStoreTests: XCTestCase {
     }
 
     private func makeStore() -> FileCaptureQueueStore {
-        FileCaptureQueueStore(rootURL: rootURL)
+        FileCaptureQueueStore(rootURL: rootURL, crypto: TestCrypto.make())
+    }
+
+    /// The encrypted image file on disk for an item (implementation-aware helper).
+    private func encryptedImageURL(for item: CaptureItem) -> URL {
+        rootURL.appendingPathComponent("images", isDirectory: true)
+            .appendingPathComponent(item.imageFileName)
     }
 
     private func jpegData(_ byte: UInt8 = 0xAB) -> Data {
@@ -43,7 +49,7 @@ final class FileCaptureQueueStoreTests: XCTestCase {
 
         // ...and both the image bytes and the metadata are already on disk,
         // before any network call could have run.
-        let imageExists = FileManager.default.fileExists(atPath: store.imageURL(for: item).path)
+        let imageExists = FileManager.default.fileExists(atPath: encryptedImageURL(for: item).path)
         XCTAssertTrue(imageExists, "Image bytes must be persisted synchronously on capture")
 
         let reloaded = try await store.loadAll()
@@ -56,8 +62,49 @@ final class FileCaptureQueueStoreTests: XCTestCase {
         let bytes = jpegData(0x42)
         let item = try await store.writeCapture(id: UUID(), imageData: bytes, createdAt: Date())
 
-        let readBack = try await store.imageData(for: item)
+        let readBack = await store.imageData(for: item)
         XCTAssertEqual(readBack, bytes, "The exact captured bytes must survive the round-trip")
+    }
+
+    // MARK: - Encryption at rest
+
+    func testImageIsEncryptedOnDisk() async throws {
+        let store = makeStore()
+        let bytes = jpegData(0x42)
+        let item = try await store.writeCapture(id: UUID(), imageData: bytes, createdAt: Date())
+
+        let onDisk = try Data(contentsOf: encryptedImageURL(for: item))
+        XCTAssertNotEqual(onDisk, bytes, "Bytes on disk must be ciphertext, not the plaintext capture")
+        XCTAssertFalse(onDisk.starts(with: bytes.prefix(8)), "Ciphertext must not begin with the plaintext")
+
+        // And a store with the wrong key cannot read it back.
+        let wrongKeyStore = FileCaptureQueueStore(rootURL: rootURL, crypto: TestCrypto.make(byte: 0xFF))
+        let opened = await wrongKeyStore.imageData(for: item)
+        XCTAssertNil(opened, "A different key must not decrypt the capture")
+    }
+
+    func testDiscardCaptureImageRemovesBytesButKeepsMetadata() async throws {
+        let store = makeStore()
+        let item = try await store.writeCapture(id: UUID(), imageData: jpegData(), createdAt: Date())
+
+        await store.discardCaptureImage(for: item.id)
+
+        let imageGone = await store.imageData(for: item) == nil
+        XCTAssertTrue(imageGone, "Image bytes must be erased on minimisation")
+        let record = await store.load(id: item.id)
+        XCTAssertNotNil(record, "Metadata receipt must remain after minimisation")
+    }
+
+    func testDecryptedUploadFileIsPlaintextAndPurgeable() async throws {
+        let store = makeStore()
+        let bytes = jpegData(0x7E)
+        let item = try await store.writeCapture(id: UUID(), imageData: bytes, createdAt: Date())
+
+        let url = try await store.makeDecryptedUploadFile(for: item)
+        XCTAssertEqual(try Data(contentsOf: url), bytes, "Upload temp file must be the decrypted capture")
+
+        await store.purgeUploadTemp()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "purgeUploadTemp must remove leftover plaintext")
     }
 
     // MARK: - Survives relaunch (new store instance, same directory)
@@ -115,7 +162,7 @@ final class FileCaptureQueueStoreTests: XCTestCase {
     func testDeleteRemovesMetadataAndImage() async throws {
         let store = makeStore()
         let item = try await store.writeCapture(id: UUID(), imageData: jpegData(), createdAt: Date())
-        let imagePath = store.imageURL(for: item).path
+        let imagePath = encryptedImageURL(for: item).path
 
         try await store.delete(id: item.id)
 

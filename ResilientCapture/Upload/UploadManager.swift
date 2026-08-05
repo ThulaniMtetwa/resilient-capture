@@ -28,6 +28,9 @@ final class UploadManager {
 
     private var consumeTask: Task<Void, Never>?
     private var retryTasks: [UUID: Task<Void, Never>] = [:]
+    /// Decrypted temp files handed to the transport, kept until the upload
+    /// completes so we can delete the plaintext promptly.
+    private var uploadTempFiles: [UUID: URL] = [:]
     /// Whether the network is currently usable. When offline, work stays
     /// `pending` and is re-driven on reconnect rather than failing in a loop.
     private var isOnline = true
@@ -117,12 +120,35 @@ final class UploadManager {
         updated.state = .uploading
         updated.updatedAt = Date()
         await persist(updated)
-        await transport.enqueueUpload(id: updated.id, fileURL: store.imageURL(for: updated))
+        await sendToTransport(updated)
+    }
+
+    /// Prepare a decrypted temp file for `item` and hand it to the transport.
+    /// Any previous temp file for this id is discarded first.
+    private func sendToTransport(_ item: CaptureItem) async {
+        await discardTempFile(for: item.id)
+        do {
+            let fileURL = try await store.makeDecryptedUploadFile(for: item)
+            uploadTempFiles[item.id] = fileURL
+            await transport.enqueueUpload(id: item.id, fileURL: fileURL)
+        } catch {
+            // Couldn't prepare the upload file; leave the item to be re-driven by
+            // a later resume(). Nothing is lost (the encrypted capture is intact).
+            log.error("Failed to prepare upload for \(item.id.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func discardTempFile(for id: UUID) async {
+        if let url = uploadTempFiles.removeValue(forKey: id) {
+            await store.discardUploadFile(at: url)
+        }
     }
 
     private func handle(_ completion: UploadCompletion) async {
         // Always re-read the persisted record; never trust a stale copy.
         guard var item = await store.load(id: completion.id) else { return }
+
+        await discardTempFile(for: item.id)   // the in-flight plaintext is no longer needed
 
         switch completion.outcome {
         case .success:
@@ -130,6 +156,9 @@ final class UploadManager {
             item.lastError = nil
             item.updatedAt = Date()
             await persist(item)
+            // Data minimisation: once delivery is confirmed, erase the local
+            // image bytes, keeping only the metadata receipt.
+            await store.discardCaptureImage(for: item.id)
             log.debug("Uploaded \(item.id.uuidString, privacy: .public)")
 
         case let .failure(retryable, message):
@@ -166,7 +195,7 @@ final class UploadManager {
         guard isOnline else { return }   // reconnect will re-drive via resume()
         // Only re-drive if it's still awaiting upload (not reset/cancelled elsewhere).
         guard let item = await store.load(id: id), item.state == .uploading else { return }
-        await transport.enqueueUpload(id: id, fileURL: store.imageURL(for: item))
+        await sendToTransport(item)
     }
 
     private func persist(_ item: CaptureItem) async {
