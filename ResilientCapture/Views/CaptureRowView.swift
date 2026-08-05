@@ -5,9 +5,12 @@ import SwiftUI
 /// button). Differentiating the trailing element by state reads cleaner than a
 /// single uniform badge and matches how native apps signal progress.
 struct CaptureRowView: View {
+    let number: Int
     let item: CaptureItem
     let loadThumbnail: () async -> UIImage?
     let onRetry: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 14) {
@@ -17,7 +20,7 @@ struct CaptureRowView: View {
             )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Identity capture")
+                Text("Capture \(number)")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -30,7 +33,7 @@ struct CaptureRowView: View {
                     Text(lastError)
                         .font(.caption)
                         .foregroundStyle(.red)
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
             }
 
@@ -39,7 +42,9 @@ struct CaptureRowView: View {
             trailing
         }
         .padding(.vertical, 6)
-        .animation(.spring(response: 0.35, dampingFraction: 0.9), value: item.state)
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: item.state)
+        .sensoryFeedback(.success, trigger: item.state) { _, newState in newState == .uploaded }
+        .sensoryFeedback(.error, trigger: item.state) { _, newState in newState == .failed }
     }
 
     @ViewBuilder

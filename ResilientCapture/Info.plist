@@ -28,8 +28,8 @@
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ResilientCapture needs access to your photo library to select an identity document or selfie to upload.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>ResilientCapture needs camera access to capture an identity document or selfie.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>ResilientCapture uses Face ID to keep your identity captures private on this device.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

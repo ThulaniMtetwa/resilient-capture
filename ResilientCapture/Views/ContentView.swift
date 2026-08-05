@@ -11,9 +11,11 @@ struct ContentView: View {
     let model: CaptureQueueModel
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pickerItem: PhotosPickerItem?
     @State private var isImporting = false
     @State private var successDismissed = false
+    @State private var pendingRemoval: CaptureItem?
 
     private var visibleStatus: StatusMessage? {
         guard let message = model.statusMessage else { return nil }
@@ -47,8 +49,8 @@ struct ContentView: View {
                         .background(.bar)
                 }
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.9), value: visibleStatus)
-            .animation(.spring(response: 0.4, dampingFraction: 0.9), value: model.items.isEmpty)
+            .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.9), value: visibleStatus)
+            .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.9), value: model.items.isEmpty)
         }
         .task {
             await model.start()
@@ -89,6 +91,23 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+        .confirmationDialog(
+            "Remove this capture?",
+            isPresented: Binding(
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingRemoval
+        ) { item in
+            Button("Remove Capture", role: .destructive) {
+                Task { await model.remove(id: item.id) }
+                pendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { pendingRemoval = nil }
+        } message: { _ in
+            Text("This permanently deletes the capture from this device. This can't be undone.")
+        }
     }
 
     // MARK: - Pieces
@@ -96,13 +115,19 @@ struct ContentView: View {
     private var queueList: some View {
         List {
             Section {
-                ForEach(model.items) { item in
+                ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
                     CaptureRowView(
+                        number: index + 1,
                         item: item,
                         loadThumbnail: { await model.thumbnail(for: item) },
                         onRetry: { Task { await model.retry(id: item.id) } }
                     )
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            pendingRemoval = item
+                        } label: {
+                            Label("Remove", systemImage: "trash")
+                        }
                         if item.state == .failed {
                             Button {
                                 Task { await model.retry(id: item.id) }
@@ -122,7 +147,7 @@ struct ContentView: View {
 
     private var emptyState: some View {
         ContentUnavailableView {
-            Label("No Captures Yet", systemImage: "camera.viewfinder")
+            Label("No Captures Yet", systemImage: "photo.on.rectangle.angled")
         } description: {
             Text("Add an identity document or selfie. It's saved on this device the instant you pick it, then uploaded securely in the background.")
         } actions: {
@@ -145,7 +170,7 @@ struct ContentView: View {
                         Text("Saving Capture…")
                     }
                 } else {
-                    Label("Add Capture", systemImage: "camera.fill")
+                    Label("Add Capture", systemImage: "photo.on.rectangle")
                 }
             }
             .font(.headline)

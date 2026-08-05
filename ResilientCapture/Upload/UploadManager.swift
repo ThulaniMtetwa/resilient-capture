@@ -102,6 +102,14 @@ final class UploadManager {
         await enqueue(item)
     }
 
+    /// Stop tracking an item that is being removed: cancel any pending retry and
+    /// discard its decrypted temp file. The caller deletes the durable record.
+    func cancelWork(for id: UUID) async {
+        retryTasks[id]?.cancel()
+        retryTasks[id] = nil
+        await discardTempFile(for: id)
+    }
+
     // MARK: - Core transitions
 
     private func enqueue(_ item: CaptureItem) async {

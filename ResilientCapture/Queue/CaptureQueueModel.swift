@@ -100,6 +100,20 @@ final class CaptureQueueModel {
         await uploadManager.retry(id: id)
     }
 
+    /// Remove a capture entirely: cancel any in-flight work, delete its encrypted
+    /// bytes and metadata from disk, and drop it from the visible queue.
+    /// Irreversible; the encrypted file is purged.
+    func remove(id: UUID) async {
+        await uploadManager.cancelWork(for: id)
+        do {
+            try await store.delete(id: id)
+        } catch {
+            errorMessage = "Couldn't remove the capture: \(error.localizedDescription)"
+            return
+        }
+        items.removeAll { $0.id == id }
+    }
+
     /// A decrypted thumbnail for a row, decoded off the main actor. Returns `nil`
     /// once an item's image has been minimised away after upload. Plaintext exists
     /// only in memory here, never on disk.
@@ -143,7 +157,7 @@ final class CaptureQueueModel {
         if failedCount > 0 {
             let noun = failedCount == 1 ? "upload" : "uploads"
             return StatusMessage(
-                text: "\(failedCount) \(noun) failed · tap Retry to try again.",
+                text: "\(failedCount) \(noun) failed · tap retry on a capture.",
                 systemImage: "exclamationmark.triangle.fill",
                 tone: .warning
             )
