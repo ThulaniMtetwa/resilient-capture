@@ -1,31 +1,45 @@
 import SwiftUI
 
-/// A slim, non-invasive status strip shown above the queue. It never blocks
-/// interaction and animates in/out; success auto-dismisses (handled by the
-/// parent). Colour + icon both carry meaning (accessibility).
+/// A slim, non-invasive status strip shown above the queue. Built as a
+/// translucent material capsule with a colour-carrying icon and primary-colour
+/// text (legible over the material), so it reads as floating chrome rather than a
+/// heavy bar. Success auto-dismisses (handled by the parent).
 struct StatusBannerView: View {
     let message: StatusMessage
 
     var body: some View {
-        HStack(spacing: 8) {
-            if message.showsActivity {
-                ProgressView().controlSize(.mini)
-            } else {
-                Image(systemName: message.systemImage)
-                    .imageScale(.medium)
-            }
+        HStack(spacing: 10) {
+            icon
+                .frame(width: 20)
             Text(message.text)
-                .font(.footnote.weight(.medium))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
                 .lineLimit(2)
             Spacer(minLength: 0)
         }
-        .foregroundStyle(tint)
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.12))
+        .padding(.vertical, 11)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.separator, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+        .padding(.horizontal)
+        .padding(.top, 6)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(message.text)
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        if message.showsActivity {
+            ProgressView().controlSize(.small)
+        } else {
+            Image(systemName: message.systemImage)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(tint)
+        }
     }
 
     private var tint: Color {
@@ -33,16 +47,7 @@ struct StatusBannerView: View {
         case .info: return .blue
         case .success: return .green
         case .warning: return .orange
-        case .offline: return .gray
+        case .offline: return .secondary
         }
-    }
-}
-
-#Preview {
-    VStack(spacing: 8) {
-        StatusBannerView(message: .init(text: "Offline · captures are saved and will upload when you reconnect.", systemImage: "wifi.slash", tone: .offline))
-        StatusBannerView(message: .init(text: "Uploading 2 captures over Cellular…", systemImage: "arrow.up.circle", tone: .info, showsActivity: true))
-        StatusBannerView(message: .init(text: "1 upload failed · tap Retry to try again.", systemImage: "exclamationmark.triangle.fill", tone: .warning))
-        StatusBannerView(message: .init(text: "All captures uploaded.", systemImage: "checkmark.circle.fill", tone: .success))
     }
 }
