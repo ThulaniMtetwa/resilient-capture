@@ -21,6 +21,13 @@ enum AppLaunch {
         UserDefaults.standard.integer(forKey: "seedSampleCaptures")
     }
 
+    /// Demo/test flag: start offline, then flip online after N seconds so the
+    /// offline banner + auto-resume-on-reconnect can be shown in the Simulator
+    /// (where real Wi-Fi can't be scripted). 0 = use the real NWPathMonitor.
+    static var simulateReconnectAfter: Int {
+        UserDefaults.standard.integer(forKey: "simulateReconnectAfter")
+    }
+
     /// Build the queue model with the appropriate store for this launch.
     @MainActor
     static func makeModel() -> CaptureQueueModel {
@@ -33,7 +40,22 @@ enum AppLaunch {
             store = FileCaptureQueueStore.makeDefault()
         }
         let transport = BackgroundUploadTransport(endpoint: AppConfig.uploadEndpoint)
-        return CaptureQueueModel(store: store, transport: transport)
+
+        let connectivity: ConnectivityMonitor
+        let reconnectAfter = simulateReconnectAfter
+        if reconnectAfter > 0 {
+            // Start offline, then come online after N seconds to demo resume.
+            let scripted = ScriptedConnectivityMonitor(initial: .offline)
+            connectivity = scripted
+            Task {
+                try? await Task.sleep(for: .seconds(Double(reconnectAfter)))
+                scripted.set(NetworkStatus(isOnline: true, isExpensive: false, isConstrained: false, interface: .wifi))
+            }
+        } else {
+            connectivity = PathConnectivityMonitor()
+        }
+
+        return CaptureQueueModel(store: store, transport: transport, connectivity: connectivity)
     }
 
     /// If requested via launch flag, seed sample captures so the queue can be

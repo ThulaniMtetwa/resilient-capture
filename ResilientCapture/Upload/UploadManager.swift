@@ -28,6 +28,9 @@ final class UploadManager {
 
     private var consumeTask: Task<Void, Never>?
     private var retryTasks: [UUID: Task<Void, Never>] = [:]
+    /// Whether the network is currently usable. When offline, work stays
+    /// `pending` and is re-driven on reconnect rather than failing in a loop.
+    private var isOnline = true
 
     init(store: CaptureQueueStore, transport: UploadTransport, policy: RetryPolicy = RetryPolicy()) {
         self.store = store
@@ -72,6 +75,20 @@ final class UploadManager {
         await enqueue(item)
     }
 
+    /// React to a connectivity change. On reconnect, re-drive queued work; on
+    /// going offline, cancel backoff timers so we don't burn battery retrying
+    /// against a network that isn't there.
+    func connectivityChanged(to status: NetworkStatus) async {
+        let wasOnline = isOnline
+        isOnline = status.isOnline
+        if isOnline && !wasOnline {
+            await resume()
+        } else if !isOnline && wasOnline {
+            retryTasks.values.forEach { $0.cancel() }
+            retryTasks.removeAll()
+        }
+    }
+
     /// Manual retry for a `failed` item: reset its attempt budget and try again.
     func retry(id: UUID) async {
         guard var item = await store.load(id: id) else { return }
@@ -85,6 +102,17 @@ final class UploadManager {
     // MARK: - Core transitions
 
     private func enqueue(_ item: CaptureItem) async {
+        guard isOnline else {
+            // Offline: keep the capture `pending` (saved, not attempted). It is
+            // re-driven by `resume()` when connectivity returns — nothing is lost.
+            if item.state != .pending {
+                var pending = item
+                pending.state = .pending
+                pending.updatedAt = Date()
+                await persist(pending)
+            }
+            return
+        }
         var updated = item
         updated.state = .uploading
         updated.updatedAt = Date()
@@ -135,6 +163,7 @@ final class UploadManager {
 
     private func fireRetry(id: UUID) async {
         retryTasks[id] = nil
+        guard isOnline else { return }   // reconnect will re-drive via resume()
         // Only re-drive if it's still awaiting upload (not reset/cancelled elsewhere).
         guard let item = await store.load(id: id), item.state == .uploading else { return }
         await transport.enqueueUpload(id: id, fileURL: store.imageURL(for: item))

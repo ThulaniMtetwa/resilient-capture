@@ -9,29 +9,46 @@ import PhotosUI
 struct ContentView: View {
     let model: CaptureQueueModel
 
+    @Environment(\.scenePhase) private var scenePhase
     @State private var pickerItem: PhotosPickerItem?
     @State private var isImporting = false
+    @State private var successDismissed = false
+
+    /// The banner to show, honouring auto-dismiss of the success message.
+    private var visibleStatus: StatusMessage? {
+        guard let message = model.statusMessage else { return nil }
+        if message.tone == .success && successDismissed { return nil }
+        return message
+    }
 
     var body: some View {
         NavigationStack {
-            Group {
-                if model.items.isEmpty {
-                    ContentUnavailableView(
-                        "No captures yet",
-                        systemImage: "camera.viewfinder",
-                        description: Text("Add an identity document or selfie. It's saved locally the instant you pick it, then uploaded in the background.")
-                    )
-                } else {
-                    List(model.items) { item in
-                        CaptureRowView(
-                            item: item,
-                            imageURL: model.imageURL(for: item),
-                            onRetry: { Task { await model.retry(id: item.id) } }
+            VStack(spacing: 0) {
+                if let status = visibleStatus {
+                    StatusBannerView(message: status)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                Group {
+                    if model.items.isEmpty {
+                        ContentUnavailableView(
+                            "No captures yet",
+                            systemImage: "camera.viewfinder",
+                            description: Text("Add an identity document or selfie. It's saved locally the instant you pick it, then uploaded in the background.")
                         )
+                    } else {
+                        List(model.items) { item in
+                            CaptureRowView(
+                                item: item,
+                                imageURL: model.imageURL(for: item),
+                                onRetry: { Task { await model.retry(id: item.id) } }
+                            )
+                        }
+                        .listStyle(.plain)
                     }
-                    .listStyle(.plain)
                 }
             }
+            .animation(.easeInOut(duration: 0.25), value: visibleStatus)
             .navigationTitle("Capture Queue")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -53,6 +70,19 @@ struct ContentView: View {
         .task {
             await model.start()
             await AppLaunch.seedIfRequested(into: model)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Returning to the foreground re-drives anything interrupted while away.
+            if phase == .active {
+                Task { await model.resumeUploads() }
+            }
+        }
+        .task(id: model.statusMessage) {
+            // Auto-dismiss the success banner a few seconds after it appears.
+            successDismissed = false
+            guard model.statusMessage?.tone == .success else { return }
+            try? await Task.sleep(for: .seconds(3))
+            successDismissed = true
         }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }

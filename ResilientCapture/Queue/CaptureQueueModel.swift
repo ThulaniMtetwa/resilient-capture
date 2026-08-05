@@ -6,9 +6,10 @@ import Observation
 /// `@MainActor` so all UI-observed mutation is compiler-checked on the main
 /// thread; `@Observable` (iOS 17) so views re-render only for the properties
 /// their `body` actually reads. It owns no side effects of its own — the disk
-/// `store` and the `UploadManager` are injected/composed here — which keeps it
-/// testable and lets the app point it at production storage + a real background
-/// transport while tests point it at a temp directory + a fake transport.
+/// `store`, the `UploadManager`, and the `ConnectivityMonitor` are injected /
+/// composed here — which keeps it testable and lets the app point it at
+/// production storage + a real background transport while tests point it at a
+/// temp directory + fakes.
 @MainActor
 @Observable
 final class CaptureQueueModel {
@@ -16,27 +17,50 @@ final class CaptureQueueModel {
     /// model mutates it, always in lock-step with the persisted store.
     private(set) var items: [CaptureItem] = []
 
+    /// Latest network status, surfaced to the status banner.
+    private(set) var networkStatus: NetworkStatus = .unknownOnline
+
     /// Surfaced to the UI for a transient error banner.
     var errorMessage: String?
 
     private let store: CaptureQueueStore
     private let uploadManager: UploadManager
+    private let connectivity: ConnectivityMonitor
+    private var connectivityTask: Task<Void, Never>?
 
-    init(store: CaptureQueueStore, transport: UploadTransport, policy: RetryPolicy = RetryPolicy()) {
+    init(
+        store: CaptureQueueStore,
+        transport: UploadTransport,
+        connectivity: ConnectivityMonitor,
+        policy: RetryPolicy = RetryPolicy()
+    ) {
         self.store = store
+        self.connectivity = connectivity
         self.uploadManager = UploadManager(store: store, transport: transport, policy: policy)
-        // The manager pushes every persisted state change back here so the UI
-        // reflects disk. `weak self` avoids a retain cycle (model owns manager).
         self.uploadManager.onItemChanged = { [weak self] item in
             self?.apply(item)
         }
     }
 
-    /// Bring the pipeline to life: start consuming outcomes, hydrate from disk,
-    /// then reconcile + resume any interrupted uploads. Call once when the UI appears.
+    // MARK: - Lifecycle
+
+    /// Bring the pipeline to life: start consuming outcomes, seed the manager
+    /// with the current connectivity, hydrate from disk, then reconcile + resume.
     func start() async {
         uploadManager.start()
+
+        // Seed connectivity synchronously so `resume()` knows whether it's online.
+        let initial = connectivity.currentStatus()
+        networkStatus = initial
+        await uploadManager.connectivityChanged(to: initial)
+        observeConnectivity()
+
         await load()
+        await uploadManager.resume()
+    }
+
+    /// Re-drive interrupted uploads. Called when returning to the foreground.
+    func resumeUploads() async {
         await uploadManager.resume()
     }
 
@@ -48,6 +72,8 @@ final class CaptureQueueModel {
             errorMessage = "Couldn't load the queue: \(error.localizedDescription)"
         }
     }
+
+    // MARK: - Actions
 
     /// Persist a freshly captured image as `pending`, reflect it, then hand it to
     /// the upload manager. The disk write is awaited first, so the UI never shows
@@ -74,7 +100,75 @@ final class CaptureQueueModel {
         store.imageURL(for: item)
     }
 
+    // MARK: - Derived UI state
+
+    var pendingCount: Int { items.lazy.filter { $0.state == .pending }.count }
+    var uploadingCount: Int { items.lazy.filter { $0.state == .uploading }.count }
+    var uploadedCount: Int { items.lazy.filter { $0.state == .uploaded }.count }
+    var failedCount: Int { items.lazy.filter { $0.state == .failed }.count }
+
+    /// The single most relevant status line for the banner, or `nil` (no banner).
+    /// Priority: offline → uploading → failed → waiting → all-done.
+    var statusMessage: StatusMessage? {
+        let total = items.count
+        guard total > 0 else { return nil }
+
+        if !networkStatus.isOnline {
+            return StatusMessage(
+                text: "Offline · captures are saved and will upload when you reconnect.",
+                systemImage: "wifi.slash",
+                tone: .offline
+            )
+        }
+        if uploadingCount > 0 {
+            let over = networkStatus.isExpensive ? " over \(networkStatus.interface.rawValue)" : ""
+            let noun = uploadingCount == 1 ? "capture" : "captures"
+            return StatusMessage(
+                text: "Uploading \(uploadingCount) \(noun)\(over)…",
+                systemImage: "arrow.up.circle",
+                tone: .info,
+                showsActivity: true
+            )
+        }
+        if failedCount > 0 {
+            let noun = failedCount == 1 ? "upload" : "uploads"
+            return StatusMessage(
+                text: "\(failedCount) \(noun) failed · tap Retry to try again.",
+                systemImage: "exclamationmark.triangle.fill",
+                tone: .warning
+            )
+        }
+        if pendingCount > 0 {
+            return StatusMessage(
+                text: "Waiting to upload \(pendingCount)…",
+                systemImage: "clock",
+                tone: .info
+            )
+        }
+        if uploadedCount == total {
+            let lowData = networkStatus.isConstrained ? " (Low Data Mode)" : ""
+            return StatusMessage(
+                text: "All \(total) captures uploaded\(lowData).",
+                systemImage: "checkmark.circle.fill",
+                tone: .success
+            )
+        }
+        return nil
+    }
+
     // MARK: - Private
+
+    private func observeConnectivity() {
+        guard connectivityTask == nil else { return }
+        connectivityTask = Task { [weak self] in
+            guard let stream = self?.connectivity.statusUpdates() else { return }
+            for await status in stream {
+                guard let self else { break }
+                self.networkStatus = status
+                await self.uploadManager.connectivityChanged(to: status)
+            }
+        }
+    }
 
     /// Upsert an item into the in-memory list, keeping it oldest-first.
     private func apply(_ item: CaptureItem) {
