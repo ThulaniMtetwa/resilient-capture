@@ -26,6 +26,12 @@ SwiftUI, iOS 17+, no third-party dependencies.
 |:---:|:---:|
 | ![Dark mode](docs/screenshots/dark.png) | ![Biometric lock](docs/screenshots/locked.png) |
 
+**Network states.** Captured while offline, the queue holds as *Waiting* under an
+offline notice; the moment connectivity returns it uploads automatically and
+settles on *Uploaded*, with no action from the user:
+
+![Offline to reconnect to uploaded](docs/screenshots/network-states.gif)
+
 ## Scope
 
 This project was built against a four-hour brief. To keep the mapping to that
