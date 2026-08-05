@@ -14,34 +14,84 @@ duplicate verification.
 
 SwiftUI, iOS 17+, no third-party dependencies.
 
-## Quick start
+## Getting started
 
-Two terminals.
+First time with this project? Follow these steps top to bottom. It takes about
+two minutes and needs nothing installed beyond Xcode.
 
-**1. Start the mock backend** (Python 3 standard library only, no `pip install`):
+### What you need
+
+- A Mac with **Xcode 16 or later** (built and tested on Xcode 26). Installing
+  Xcode also installs the iOS simulators and the command-line tools.
+- **Python 3** for the mock backend. It is preinstalled on macOS. Check with
+  `python3 --version`.
+
+You will use one terminal window for the mock server and Xcode for the app. The
+server and the app are pre-configured to talk to each other on port `8080`, so
+there is nothing to configure.
+
+### Step 1: Start the mock server
+
+In a terminal, from the project's root folder:
 
 ```bash
 python3 mock-server/server.py
 ```
 
-It listens on `http://localhost:8080`. See [mock-server/README.md](mock-server/README.md)
-for fault-injection options (slow, flaky, offline, permanent-failure).
+You should see `Mock backend listening on http://localhost:8080`. Leave this
+window open and running (press `Ctrl+C` to stop it later). It uses only the
+Python standard library, so there is no `pip install`.
 
-**2. Run the app** in Xcode:
+### Step 2: Open and run the app
+
+Open the project in Xcode (from the same folder, in a second terminal, or by
+double-clicking it in Finder):
 
 ```bash
 open ResilientCapture.xcodeproj
 ```
 
-Pick an iPhone simulator and Run. Tap the **+** button to select a photo from the
-library (photo-library selection is used so it works in the Simulator). The
-capture appears immediately as `pending`, then moves to `uploading` and
-`uploaded`. Failed items show a **Retry** button.
+In Xcode:
 
-The app talks to the backend at `127.0.0.1:8080` (see
-[AppConfig.swift](ResilientCapture/Support/AppConfig.swift)).
+1. At the top of the window, next to the app name, pick an **iPhone simulator**
+   (for example "iPhone 16"). Make sure a simulator is selected, not a physical
+   device.
+2. Press the **Run** button (the triangle), or `Cmd + R`.
 
-## Run the tests
+Xcode builds the app and launches the simulator. No signing or Apple ID is needed
+for the simulator.
+
+### Step 3: Try it
+
+1. Tap **Add Capture** and pick any photo from the simulator's library. (The
+   simulator ships with sample photos. Photo-library selection is used so the
+   flow works without a real camera.)
+2. The capture appears immediately as **Waiting**, then moves to **Uploading**
+   and finally a green **Uploaded** seal, once the mock server confirms it.
+3. Watch the mock server terminal: you will see a `200 OK` line for each upload.
+
+That is the full pipeline working: a capture is saved on the device first, then
+uploaded in the background.
+
+### Optional: see the resilience in action
+
+Stop the mock server (`Ctrl+C`) and start it again with a fault injected, then add
+a capture and watch how the app copes:
+
+```bash
+# Fail the first two attempts of every upload, then succeed (shows retry + backoff)
+FAIL_FIRST_N=2 python3 mock-server/server.py
+
+# Always return an error (shows a Failed item with a Retry button)
+FORCE_STATUS=400 python3 mock-server/server.py
+```
+
+More options (slow network, dropped connections, HTTPS with certificate pinning,
+bearer-token auth) are in [mock-server/README.md](mock-server/README.md).
+
+### Optional: run the tests
+
+From a terminal in the project root:
 
 ```bash
 xcodebuild test \
@@ -50,8 +100,28 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-24 tests: persistence (persist-first, relaunch survival, corruption tolerance),
-backoff math, and the retry/resume/reconciliation/connectivity state machine.
+40 tests covering persistence, encryption, backoff, the upload state machine, and
+the transport-security helpers.
+
+### Troubleshooting
+
+- **`OSError: [Errno 48] Address already in use`** when starting the server. A
+  server is already running on port 8080. Stop it with
+  `lsof -ti:8080 | xargs kill`, then start it again. (Or run on another port with
+  `PORT=8081 python3 mock-server/server.py` and update the endpoint in
+  [AppConfig.swift](ResilientCapture/Support/AppConfig.swift).)
+- **Captures stay on "Waiting" or "Uploading" and nothing reaches the server.**
+  The mock server is not running, or not on port 8080. Start it (Step 1). The app
+  retries on its own, so items upload as soon as the server is up.
+- **A "Captures locked" screen appears.** That is the Face ID / passcode gate. On
+  a simulator with no passcode it lets you straight through; if you see it, tap
+  **Unlock**. To disable it entirely, run the app with
+  `-disableBiometricGate YES` in the scheme's arguments (Product > Scheme > Edit
+  Scheme > Run > Arguments).
+- **The photo picker is empty.** Drag any image file onto the simulator window to
+  add it to the simulator's Photos, then try again.
+- **Xcode mentions code signing.** It is not needed for the simulator. Just
+  confirm a simulator (not a device) is selected at the top.
 
 ## What it demonstrates
 
