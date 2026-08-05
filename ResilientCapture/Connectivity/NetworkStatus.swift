@@ -14,7 +14,7 @@ struct NetworkStatus: Sendable, Equatable {
 
     /// Whether a usable path exists (`NWPath.status == .satisfied`).
     var isOnline: Bool
-    /// Metered / personal-hotspot / cellular — worth telling the user about.
+    /// Metered / personal-hotspot / cellular - worth telling the user about.
     var isExpensive: Bool
     /// Low Data Mode.
     var isConstrained: Bool

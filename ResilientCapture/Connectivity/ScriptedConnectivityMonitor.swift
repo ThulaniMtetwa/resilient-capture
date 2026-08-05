@@ -2,7 +2,7 @@ import Foundation
 
 /// A `ConnectivityMonitor` whose status is set programmatically.
 ///
-/// Used two ways: by unit tests to drive the manager through offline→online
+/// Used two ways: by unit tests to drive the manager through offline->online
 /// transitions deterministically, and by a launch flag to demo the offline
 /// banner + auto-resume-on-reconnect in the Simulator (where you can't script
 /// real Wi-Fi). `@unchecked Sendable`: state guarded by `lock`.

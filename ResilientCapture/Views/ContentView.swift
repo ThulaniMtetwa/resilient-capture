@@ -5,7 +5,7 @@ import PhotosUI
 ///
 /// The model is owned upstream (by the `App`) and passed in; because it's
 /// `@Observable`, reading `model.items` here is enough for this view to track
-/// changes — no `@ObservedObject` wrapper needed.
+/// changes - no `@ObservedObject` wrapper needed.
 struct ContentView: View {
     let model: CaptureQueueModel
 

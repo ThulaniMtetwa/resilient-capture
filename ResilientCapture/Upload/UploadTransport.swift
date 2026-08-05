@@ -8,7 +8,7 @@ import Foundation
 ///
 /// The contract is deliberately fire-and-forget: `enqueueUpload` starts an upload
 /// and returns; results arrive later on the outcome stream. This matches how a
-/// background session behaves — a completion can be delivered minutes later, or
+/// background session behaves - a completion can be delivered minutes later, or
 /// even after the app has been relaunched.
 protocol UploadTransport: Sendable {
     /// Create the single stream of upload outcomes. Called once by the manager

@@ -10,8 +10,8 @@ import UIKit
 /// `UserDefaults`, the standard iOS idiom for test launch flags.
 ///
 /// Supported flags:
-///   `-uiTesting YES`            → use a fresh temp-directory store (never touches real captures)
-///   `-seedSampleCaptures <n>`   → enqueue `n` generated sample images on first appear
+///   `-uiTesting YES`            -> use a fresh temp-directory store (never touches real captures)
+///   `-seedSampleCaptures <n>`   -> enqueue `n` generated sample images on first appear
 enum AppLaunch {
     static var isUITesting: Bool {
         UserDefaults.standard.bool(forKey: "uiTesting")

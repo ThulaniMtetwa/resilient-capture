@@ -9,7 +9,7 @@ import Foundation
 final class FakeUploadTransport: UploadTransport, @unchecked Sendable {
     /// Decide the outcome for an enqueue. `attempt` is the per-id attempt count
     /// (1-based). Return `nil` to leave the upload "in flight" (simulating a
-    /// hung/suspended task that never completes) — the test can finish it later
+    /// hung/suspended task that never completes) - the test can finish it later
     /// with `complete(_:_:)`.
     var handler: (@Sendable (_ id: UUID, _ attempt: Int) -> UploadOutcome?)?
 

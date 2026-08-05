@@ -204,7 +204,7 @@ final class UploadManagerTests: XCTestCase {
         XCTAssertEqual(offlineState, .pending)
         XCTAssertEqual(transport.enqueueCount(for: item.id), 0)
 
-        // Reconnect → auto-resume → uploaded.
+        // Reconnect -> auto-resume -> uploaded.
         await manager.connectivityChanged(to: .unknownOnline)
         await waitUntil("uploaded after reconnect") { await self.state(of: item.id) == .uploaded }
     }

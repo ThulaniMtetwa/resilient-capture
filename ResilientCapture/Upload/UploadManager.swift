@@ -2,16 +2,16 @@ import Foundation
 import os
 
 /// Orchestrates the upload lifecycle: which items to send, how state transitions,
-/// and how failures are retried. This is the testable heart of the pipeline —
+/// and how failures are retried. This is the testable heart of the pipeline -
 /// it depends only on the `CaptureQueueStore` and `UploadTransport` protocols and
 /// a pure `RetryPolicy`, so tests drive it with a fake transport and assert real
 /// state transitions with no networking.
 ///
 /// State-machine rules:
-///   • `pending`   → enqueue → `uploading`
-///   • success     → `uploaded` (terminal)
-///   • retryable failure, attempts remain → stays `uploading`, backoff, re-enqueue
-///   • retryable failure, attempts exhausted, or non-retryable → `failed`
+///   • `pending`   -> enqueue -> `uploading`
+///   • success     -> `uploaded` (terminal)
+///   • retryable failure, attempts remain -> stays `uploading`, backoff, re-enqueue
+///   • retryable failure, attempts exhausted, or non-retryable -> `failed`
 ///     (`failed` means "needs a human"; auto-retry never lands here)
 ///
 /// `@MainActor` so it can push updated items straight to the UI via `onItemChanged`
@@ -104,7 +104,7 @@ final class UploadManager {
     private func enqueue(_ item: CaptureItem) async {
         guard isOnline else {
             // Offline: keep the capture `pending` (saved, not attempted). It is
-            // re-driven by `resume()` when connectivity returns — nothing is lost.
+            // re-driven by `resume()` when connectivity returns - nothing is lost.
             if item.state != .pending {
                 var pending = item
                 pending.state = .pending
@@ -136,7 +136,7 @@ final class UploadManager {
             item.attemptCount += 1
             item.updatedAt = Date()
             if retryable && policy.shouldRetry(afterAttempts: item.attemptCount) {
-                // Still actively being handled — keep it `uploading` and back off.
+                // Still actively being handled - keep it `uploading` and back off.
                 item.state = .uploading
                 item.lastError = "\(message) · retrying"
                 await persist(item)

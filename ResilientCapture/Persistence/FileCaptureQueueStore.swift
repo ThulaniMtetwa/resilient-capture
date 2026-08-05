@@ -17,7 +17,7 @@ import os
 /// **Why an `actor`.** The upload manager mutates item state from background tasks
 /// while the UI reads the queue. Making the store an actor serialises all access
 /// without manual locks, and every file write uses `.atomic` (write-to-temp +
-/// rename) so a crash mid-write leaves either the old bytes or the new — never a
+/// rename) so a crash mid-write leaves either the old bytes or the new - never a
 /// half-written record.
 actor FileCaptureQueueStore: CaptureQueueStore {
     private let rootURL: URL

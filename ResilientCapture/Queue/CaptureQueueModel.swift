@@ -5,9 +5,9 @@ import Observation
 ///
 /// `@MainActor` so all UI-observed mutation is compiler-checked on the main
 /// thread; `@Observable` (iOS 17) so views re-render only for the properties
-/// their `body` actually reads. It owns no side effects of its own — the disk
+/// their `body` actually reads. It owns no side effects of its own - the disk
 /// `store`, the `UploadManager`, and the `ConnectivityMonitor` are injected /
-/// composed here — which keeps it testable and lets the app point it at
+/// composed here - which keeps it testable and lets the app point it at
 /// production storage + a real background transport while tests point it at a
 /// temp directory + fakes.
 @MainActor
@@ -108,7 +108,7 @@ final class CaptureQueueModel {
     var failedCount: Int { items.lazy.filter { $0.state == .failed }.count }
 
     /// The single most relevant status line for the banner, or `nil` (no banner).
-    /// Priority: offline → uploading → failed → waiting → all-done.
+    /// Priority: offline -> uploading -> failed -> waiting -> all-done.
     var statusMessage: StatusMessage? {
         let total = items.count
         guard total > 0 else { return nil }

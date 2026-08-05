@@ -6,7 +6,7 @@ import os
 /// Why background configuration: the OS owns the transfer, so uploads keep going
 /// while the app is suspended, and the session is re-attachable across launches
 /// via its identifier. Background sessions must upload **from a file** (not an
-/// in-memory body) — which fits perfectly, because every capture is already a
+/// in-memory body) - which fits perfectly, because every capture is already a
 /// file on disk from Step 1.
 ///
 /// Completions are delivered by the `URLSession` delegate (on a private queue)
@@ -31,7 +31,7 @@ final class BackgroundUploadTransport: NSObject, UploadTransport, @unchecked Sen
         let config: URLSessionConfiguration
         #if targetEnvironment(simulator)
         // The background transfer daemon (nsurlsessiond) is not functional in the
-        // iOS Simulator — background tasks fail immediately with NSURLErrorUnknown
+        // iOS Simulator - background tasks fail immediately with NSURLErrorUnknown
         // (-1). Use a standard configuration here. This does NOT weaken the
         // resilience guarantees for our scenarios: durability comes from the
         // persist-first store + launch reconciliation + server idempotency, not

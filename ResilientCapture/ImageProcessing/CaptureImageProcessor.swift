@@ -5,10 +5,10 @@ import UIKit
 
 /// Memory-efficient image handling for the capture pipeline.
 ///
-/// Modern phone cameras produce 12–48 MP images; decoding one full-resolution
+/// Modern phone cameras produce 12-48 MP images; decoding one full-resolution
 /// `UIImage` just to shrink it can spike memory by tens of MB per capture. Every
 /// operation here uses **ImageIO thumbnailing**, which decodes straight to the
-/// target size without ever materialising the full bitmap — the "sound
+/// target size without ever materialising the full bitmap - the "sound
 /// memory-management around image processing" the brief asks for.
 ///
 /// This is pure, side-effect-free logic, so it is a plain namespace with no

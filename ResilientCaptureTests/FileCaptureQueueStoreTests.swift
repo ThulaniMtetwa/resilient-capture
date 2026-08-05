@@ -1,7 +1,7 @@
 import XCTest
 @testable import ResilientCapture
 
-/// Tests for the persistence layer — the guarantee that a completed capture is
+/// Tests for the persistence layer - the guarantee that a completed capture is
 /// on disk before anything else happens, and survives a process restart.
 final class FileCaptureQueueStoreTests: XCTestCase {
     private var rootURL: URL!

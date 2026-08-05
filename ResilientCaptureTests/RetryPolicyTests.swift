@@ -6,7 +6,7 @@ final class RetryPolicyTests: XCTestCase {
     private let policy = RetryPolicy(baseDelay: 1, multiplier: 2, maxDelay: 30, maxAttempts: 5, jitter: 0.2)
 
     func testFirstRetryUsesBaseDelay() {
-        // No jitter (RNG returns 0) → exactly baseDelay.
+        // No jitter (RNG returns 0) -> exactly baseDelay.
         let delay = policy.delay(afterAttempts: 1, random: { _ in 0 })
         XCTAssertEqual(delay, 1, accuracy: 0.0001)
     }

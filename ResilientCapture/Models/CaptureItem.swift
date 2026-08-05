@@ -6,7 +6,7 @@ import Foundation
 /// so that impossible states (e.g. "uploaded AND failed") cannot be represented.
 enum UploadState: String, Codable, Sendable, CaseIterable {
     /// Persisted to disk, not yet handed to the network. The state every
-    /// capture is born in — set *before* any upload is attempted.
+    /// capture is born in - set *before* any upload is attempted.
     case pending
     /// Handed to the upload transport; awaiting a confirmed server response.
     case uploading

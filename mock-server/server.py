@@ -139,7 +139,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": "internal error (injected)", "attempt": attempt})
             return
 
-        # Success path — idempotent store.
+        # Success path - idempotent store.
         if capture_id in _stored:
             _log(f"200 DUP id={capture_id[:8]} attempt={attempt} (already stored)")
             self._send_json(200, {"status": "ok", "id": capture_id, "duplicate": True})

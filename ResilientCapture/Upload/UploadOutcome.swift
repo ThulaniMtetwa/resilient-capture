@@ -11,7 +11,7 @@ enum UploadOutcome: Sendable, Equatable {
 }
 
 /// A completed upload: which capture, and how it went. Emitted by the transport's
-/// outcome stream — possibly long after the attempt began (e.g. after relaunch,
+/// outcome stream - possibly long after the attempt began (e.g. after relaunch,
 /// for a background transport).
 struct UploadCompletion: Sendable, Equatable {
     let id: UUID

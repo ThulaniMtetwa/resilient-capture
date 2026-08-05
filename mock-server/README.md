@@ -1,7 +1,7 @@
 # Mock verification backend
 
 A dependency-free stand-in for iiDENTIFii's verification endpoint. Python 3
-standard library only — no `pip install`.
+standard library only - no `pip install`.
 
 ## Run
 
@@ -32,13 +32,13 @@ Use these to exercise the app's retry / backoff / resume paths:
 | `FAIL_FIRST_N`  | Fail the first N attempts **per capture id** with 503, then succeed. |
 | `FAIL_RATE`     | Fail each request independently with probability `0..1`. |
 | `LATENCY_MS`    | Delay every response (simulate a slow network). |
-| `DROP_RATE`     | With probability `0..1`, read the body then never respond (black-hole → client times out and retries). |
+| `DROP_RATE`     | With probability `0..1`, read the body then never respond (black-hole -> client times out and retries). |
 | `PORT`          | Listen port (default `8080`). |
 
 Examples:
 
 ```bash
-# First two attempts of every capture fail, then succeed — shows retry+backoff
+# First two attempts of every capture fail, then succeed - shows retry+backoff
 FAIL_FIRST_N=2 python3 mock-server/server.py
 
 # Flaky, slow network
