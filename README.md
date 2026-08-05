@@ -1,5 +1,7 @@
 # ResilientCapture
 
+![App icon](docs/screenshots/icon.png)
+
 A native iOS proof of concept for iiDENTIFii's problem: capturing an identity
 document or selfie on device and delivering it to a verification backend so that
 **no completed capture is ever silently lost**, even under patchy networks, app
@@ -13,6 +15,48 @@ idempotent on a client-generated id, so a retry after a crash can never create a
 duplicate verification.
 
 SwiftUI, iOS 17+, no third-party dependencies.
+
+## Screenshots
+
+| Empty | Uploading | Uploaded | Failed |
+|:---:|:---:|:---:|:---:|
+| ![Empty state](docs/screenshots/empty.png) | ![Uploading](docs/screenshots/uploading.png) | ![Uploaded](docs/screenshots/uploaded.png) | ![Failed with retry](docs/screenshots/failed.png) |
+
+| Dark mode | Locked (Face ID) |
+|:---:|:---:|
+| ![Dark mode](docs/screenshots/dark.png) | ![Biometric lock](docs/screenshots/locked.png) |
+
+## Scope
+
+This project was built against a four-hour brief. To keep the mapping to that
+brief clear, the work is split into two groups. Both are fully built, tested, and
+documented; the split is only about what the brief asked for versus what was added
+on top.
+
+**Core deliverable (the brief).** The resilient pipeline and everything the
+requirements list asks for:
+
+- Persistence-first capture queue (image + `pending` metadata on disk before any
+  network call).
+- Capture flow, background-safe upload manager with retry and exponential backoff.
+- Connectivity awareness and lifecycle/relaunch resume, without duplicates.
+- Status UI for all four states with manual retry.
+- Unit tests for persistence and retry/resume, plus end-to-end verification of the
+  kill / connectivity-loss / relaunch scenarios.
+- Design, concurrency, and trade-off documentation.
+
+These correspond to the first seven commits (`scaffold` through the retry/resume
+tests).
+
+**Extensions added afterwards (beyond the brief).** Everything below the "well
+tested" and "reasonably secure" lines the brief mentions, taken further than the
+time box required:
+
+- Security: AES-256-GCM encryption at rest with a Keychain-held key, data
+  minimisation, TLS certificate pinning, bearer-token auth, a backgrounding
+  privacy screen, and a Face ID / passcode gate.
+- Presentation: an Apple HIG-aligned UI pass, a custom accent colour, and an app
+  icon.
 
 ## Getting started
 
