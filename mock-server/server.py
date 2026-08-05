@@ -53,6 +53,7 @@ RECEIVED_DIR = Path(__file__).resolve().parent / "received"
 RECEIVED_DIR.mkdir(exist_ok=True)
 
 PORT = int(os.environ.get("PORT", "8080"))
+FORCE_STATUS = int(os.environ.get("FORCE_STATUS", "0"))  # if set, always return this status
 FAIL_FIRST_N = int(os.environ.get("FAIL_FIRST_N", "0"))
 FAIL_RATE = float(os.environ.get("FAIL_RATE", "0"))
 LATENCY_MS = int(os.environ.get("LATENCY_MS", "0"))
@@ -118,6 +119,12 @@ class Handler(BaseHTTPRequestHandler):
         # out and retry. We simply return without writing a response.
         if DROP_RATE > 0 and random.random() < DROP_RATE:
             _log(f"DROP    id={capture_id[:8]} attempt={attempt} (no response sent)")
+            return
+
+        # Always return a fixed status (e.g. 400 to force a permanent failure).
+        if FORCE_STATUS:
+            _log(f"{FORCE_STATUS}   id={capture_id[:8]} attempt={attempt} (force-status)")
+            self._send_json(FORCE_STATUS, {"error": "forced status", "attempt": attempt})
             return
 
         # Deterministic fail-first-N per id, then succeed.
