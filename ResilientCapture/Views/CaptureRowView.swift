@@ -64,7 +64,7 @@ struct CaptureRowView: View {
             .buttonStyle(.bordered)
             .buttonBorderShape(.circle)
             .controlSize(.small)
-            .tint(.blue)
+            .tint(.accentColor)
             .accessibilityLabel("Retry upload")
         }
     }

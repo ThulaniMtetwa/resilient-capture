@@ -44,7 +44,7 @@ struct StatusBannerView: View {
 
     private var tint: Color {
         switch message.tone {
-        case .info: return .blue
+        case .info: return .accentColor
         case .success: return .green
         case .warning: return .orange
         case .offline: return .secondary

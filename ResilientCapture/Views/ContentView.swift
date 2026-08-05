@@ -109,7 +109,7 @@ struct ContentView: View {
                             } label: {
                                 Label("Retry", systemImage: "arrow.clockwise")
                             }
-                            .tint(.blue)
+                            .tint(.accentColor)
                         }
                     }
                 }
