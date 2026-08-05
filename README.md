@@ -32,6 +32,13 @@ settles on *Uploaded*, with no action from the user:
 
 ![Offline to reconnect to uploaded](docs/screenshots/network-states.gif)
 
+**Killed mid-upload.** The app is force-killed while an upload is in flight (note
+the return to the home screen); on relaunch the interrupted capture is re-driven
+automatically and finishes as *Uploaded*. It is delivered exactly once (the
+backend deduplicates on the capture id), so nothing is lost or duplicated:
+
+![Killed mid-upload then relaunched](docs/screenshots/kill-relaunch.gif)
+
 ## Scope
 
 This project was built against a four-hour brief. To keep the mapping to that
