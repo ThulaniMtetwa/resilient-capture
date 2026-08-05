@@ -1,13 +1,36 @@
 import Foundation
 
-/// Static app configuration. Kept tiny and in one place so the walkthrough has a
-/// single answer to "where does the endpoint come from".
+/// Static app configuration, with launch-flag overrides so the secure transport
+/// (HTTPS + pinning + auth) can be exercised against the local mock without a
+/// production backend. Overrides are read from `UserDefaults` (the `-key value`
+/// launch-argument convention).
 enum AppConfig {
-    /// The mock verification endpoint. The iOS Simulator shares the Mac's
-    /// network, so `127.0.0.1` reaches the Python mock server directly.
-    ///
-    /// Note: we use the IPv4 literal `127.0.0.1` rather than `localhost`. A
-    /// background `URLSession`'s transfer daemon on the Simulator resolves
-    /// `localhost` to IPv6 `::1` first and fails there; pinning IPv4 avoids it.
-    static let uploadEndpoint = URL(string: "http://127.0.0.1:8080/upload")!
+    /// The upload endpoint. Defaults to the plain-http localhost mock; override
+    /// with `-uploadEndpoint https://127.0.0.1:8443/upload` for the secure demo.
+    static var uploadEndpoint: URL {
+        if let override = UserDefaults.standard.string(forKey: "uploadEndpoint"),
+           let url = URL(string: override) {
+            return url
+        }
+        return URL(string: "http://127.0.0.1:8080/upload")!
+    }
+
+    /// Pinned certificate fingerprints (base64 SHA-256 of DER). Empty = no
+    /// pinning. Override with `-pinnedKeys <hash1,hash2>`.
+    static var pinnedCertificates: [String] {
+        (UserDefaults.standard.string(forKey: "pinnedKeys") ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// The bearer token for uploads. Production reads this from the Keychain via
+    /// `AuthTokenStore`; a launch override (`-authToken <t>`) supports the demo
+    /// and unsigned builds where the Keychain is unavailable.
+    static var bearerToken: String? {
+        if let override = UserDefaults.standard.string(forKey: "authToken"), !override.isEmpty {
+            return override
+        }
+        return AuthTokenStore.currentToken()
+    }
 }

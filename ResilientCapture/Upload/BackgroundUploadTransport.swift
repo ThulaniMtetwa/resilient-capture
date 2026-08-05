@@ -19,6 +19,8 @@ import os
 final class BackgroundUploadTransport: NSObject, UploadTransport, @unchecked Sendable {
     private let endpoint: URL
     private let sessionIdentifier: String
+    private let pinner: CertificatePinner
+    private let tokenProvider: @Sendable () -> String?
     private let lock = NSLock()
     private var continuation: AsyncStream<UploadCompletion>.Continuation?
     private let log = Logger(subsystem: "com.iidentifii.resilientcapture", category: "upload")
@@ -50,10 +52,30 @@ final class BackgroundUploadTransport: NSObject, UploadTransport, @unchecked Sen
         return URLSession(configuration: config, delegate: self, delegateQueue: queue)
     }()
 
-    init(endpoint: URL, sessionIdentifier: String = "com.iidentifii.resilientcapture.upload") {
+    init(
+        endpoint: URL,
+        pinner: CertificatePinner = CertificatePinner(pinnedSHA256: []),
+        tokenProvider: @escaping @Sendable () -> String? = { nil },
+        sessionIdentifier: String = "com.iidentifii.resilientcapture.upload"
+    ) {
         self.endpoint = endpoint
+        self.pinner = pinner
+        self.tokenProvider = tokenProvider
         self.sessionIdentifier = sessionIdentifier
         super.init()
+    }
+
+    /// Build the upload request. Pure and static so it can be unit-tested without
+    /// a session: sets the capture id and, when present, a bearer token.
+    static func makeUploadRequest(endpoint: URL, captureID: UUID, bearerToken: String?) -> URLRequest {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        request.setValue(captureID.uuidString, forHTTPHeaderField: "X-Capture-Id")
+        if let bearerToken, !bearerToken.isEmpty {
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        }
+        return request
     }
 
     // MARK: - UploadTransport
@@ -74,10 +96,7 @@ final class BackgroundUploadTransport: NSObject, UploadTransport, @unchecked Sen
             log.debug("Skip enqueue \(id.uuidString, privacy: .public): already in flight")
             return
         }
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
-        request.setValue(id.uuidString, forHTTPHeaderField: "X-Capture-Id")
+        let request = Self.makeUploadRequest(endpoint: endpoint, captureID: id, bearerToken: tokenProvider())
 
         let task = session.uploadTask(with: request, fromFile: fileURL)
         task.taskDescription = id.uuidString   // lets us map completions back to the record
@@ -108,6 +127,30 @@ extension BackgroundUploadTransport: URLSessionDataDelegate {
         let outcome = Self.outcome(for: task, error: error)
         log.debug("Completion \(id.uuidString, privacy: .public): \(String(describing: outcome), privacy: .public)")
         emit(UploadCompletion(id: id, outcome: outcome))
+    }
+
+    /// Server-trust challenge: enforce certificate pinning when configured.
+    /// With pinning off, defer to the system's default TLS validation.
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        guard pinner.isActive else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        if pinner.validate(serverTrust: trust) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            log.error("Certificate pin mismatch; rejecting connection")
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

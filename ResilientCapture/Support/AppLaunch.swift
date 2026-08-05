@@ -21,6 +21,24 @@ enum AppLaunch {
         UserDefaults.standard.integer(forKey: "seedSampleCaptures")
     }
 
+    /// Whether the biometric lock gate is active. On by default; disabled for
+    /// automated UI runs and via `-disableBiometricGate YES`. Forced on for the
+    /// `-forceLocked` demo.
+    static var biometricGateEnabled: Bool {
+        if forceLocked { return true }
+        return !isUITesting && !UserDefaults.standard.bool(forKey: "disableBiometricGate")
+    }
+
+    private static var forceLocked: Bool {
+        UserDefaults.standard.bool(forKey: "forceLocked")
+    }
+
+    /// The authenticator to use. `-forceLocked YES` uses a denying stub so the
+    /// locked screen can be shown in the Simulator.
+    static func makeAuthenticator() -> BiometricAuthenticator {
+        forceLocked ? FixedResultAuthenticator(result: false) : LABiometricAuthenticator()
+    }
+
     /// Demo/test flag: start offline, then flip online after N seconds so the
     /// offline banner + auto-resume-on-reconnect can be shown in the Simulator
     /// (where real Wi-Fi can't be scripted). 0 = use the real NWPathMonitor.
@@ -39,7 +57,11 @@ enum AppLaunch {
         } else {
             store = FileCaptureQueueStore.makeDefault()
         }
-        let transport = BackgroundUploadTransport(endpoint: AppConfig.uploadEndpoint)
+        let transport = BackgroundUploadTransport(
+            endpoint: AppConfig.uploadEndpoint,
+            pinner: CertificatePinner(pinnedSHA256: AppConfig.pinnedCertificates),
+            tokenProvider: { AppConfig.bearerToken }
+        )
 
         let connectivity: ConnectivityMonitor
         let reconnectAfter = simulateReconnectAfter

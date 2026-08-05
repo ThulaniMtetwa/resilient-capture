@@ -43,6 +43,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import ssl
 import sys
 import time
 from datetime import datetime, timezone
@@ -58,6 +59,9 @@ FAIL_FIRST_N = int(os.environ.get("FAIL_FIRST_N", "0"))
 FAIL_RATE = float(os.environ.get("FAIL_RATE", "0"))
 LATENCY_MS = int(os.environ.get("LATENCY_MS", "0"))
 DROP_RATE = float(os.environ.get("DROP_RATE", "0"))
+REQUIRE_AUTH = os.environ.get("REQUIRE_AUTH", "0") == "1"  # demand an Authorization: Bearer header
+TLS_CERT = os.environ.get("TLS_CERT", "")                  # path to a PEM cert to serve HTTPS
+TLS_KEY = os.environ.get("TLS_KEY", "")                    # path to the matching PEM key
 
 # In-memory server state. Fine for a mock; resets when the process restarts.
 _attempts: dict[str, int] = {}          # capture_id -> attempts seen
@@ -105,6 +109,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self.path.startswith("/upload"):
             self._send_json(404, {"error": "not found"})
+            return
+
+        # Require a bearer token if configured.
+        if REQUIRE_AUTH and not self.headers.get("Authorization", "").startswith("Bearer "):
+            self._send_json(401, {"error": "missing bearer token"})
             return
 
         capture_id, image_bytes = self._parse_upload()
@@ -171,9 +180,15 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    _log(f"Mock backend listening on http://localhost:{PORT}")
+    scheme = "http"
+    if TLS_CERT and TLS_KEY:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=TLS_CERT, keyfile=TLS_KEY)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
+    _log(f"Mock backend listening on {scheme}://localhost:{PORT}")
     _log(f"  faults: FAIL_FIRST_N={FAIL_FIRST_N} FAIL_RATE={FAIL_RATE} "
-         f"LATENCY_MS={LATENCY_MS} DROP_RATE={DROP_RATE}")
+         f"LATENCY_MS={LATENCY_MS} DROP_RATE={DROP_RATE} REQUIRE_AUTH={REQUIRE_AUTH} TLS={scheme=='https'}")
     _log(f"  received images -> {RECEIVED_DIR}")
     try:
         server.serve_forever()

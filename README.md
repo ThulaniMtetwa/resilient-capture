@@ -87,9 +87,19 @@ at rest:
   **decrypted** temp file for the transport, deleted on completion and purged on
   launch, so plaintext exists only during an active upload.
 
-Transport hardening (TLS pinning, auth tokens), a backgrounding privacy screen,
-and a biometric gate are designed but not yet implemented (see DESIGN.md, Future
-work). See DESIGN.md, "Security: data at rest", for the full rationale.
+In transit and on device:
+
+- **TLS certificate pinning + bearer-token auth.** The upload transport pins the
+  server certificate (rejecting a mismatched cert even if validly issued) and
+  sends an `Authorization: Bearer` token from the Keychain. Verified end to end
+  against a self-signed HTTPS mock: correct pin uploads, wrong pin is rejected,
+  missing token gets a 401.
+- **Backgrounding privacy screen.** A cover view hides identity content whenever
+  the app is not active, so it never leaks into the app-switcher snapshot.
+- **Biometric gate.** Face ID / Touch ID (with passcode fallback) is required to
+  view the captures.
+
+See DESIGN.md, "Security", for the full rationale and the pinning demo commands.
 
 ## Project structure
 
@@ -125,8 +135,9 @@ model, and the trade-offs made within the time box.
   entitlement for the Keychain, so the encryption key falls back to a
   Data-Protected key file. A normal signed run (Xcode Run, or device) uses the
   Keychain. This is a build-environment limitation, not a design one.
-- **Transport security is not yet hardened.** The mock uses plain http on
-  localhost; production needs TLS with certificate pinning and an auth token
-  (designed, see DESIGN.md).
+- **The default endpoint is the plain-http mock.** TLS pinning and auth are
+  implemented and verified against a self-signed HTTPS mock (via launch-flag
+  overrides); a production build would ship the real HTTPS endpoint and pins in
+  `AppConfig`.
 - **The mock backend keeps state in memory** and resets on restart. It is a test
   stub, not a real service.

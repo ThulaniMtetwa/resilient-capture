@@ -29,4 +29,5 @@ playground.xcworkspace
 
 # Mock server runtime artifacts
 mock-server/received/
+mock-server/certs/
 *.pid

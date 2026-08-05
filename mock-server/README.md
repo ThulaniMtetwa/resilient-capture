@@ -33,7 +33,23 @@ Use these to exercise the app's retry / backoff / resume paths:
 | `FAIL_RATE`     | Fail each request independently with probability `0..1`. |
 | `LATENCY_MS`    | Delay every response (simulate a slow network). |
 | `DROP_RATE`     | With probability `0..1`, read the body then never respond (black-hole -> client times out and retries). |
+| `FORCE_STATUS`  | Always return this HTTP status (e.g. `400` to force a permanent failure). |
+| `REQUIRE_AUTH`  | `1` to reject uploads that lack an `Authorization: Bearer` header (401). |
+| `TLS_CERT` / `TLS_KEY` | Paths to a PEM cert/key to serve HTTPS instead of http. |
 | `PORT`          | Listen port (default `8080`). |
+
+For the secure-transport demo (TLS + certificate pinning + auth), generate a
+self-signed cert and run over HTTPS:
+
+```bash
+mkdir -p certs
+openssl req -x509 -newkey rsa:2048 -keyout certs/key.pem -out certs/cert.pem \
+  -days 3650 -nodes -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+REQUIRE_AUTH=1 TLS_CERT=certs/cert.pem TLS_KEY=certs/key.pem PORT=8443 python3 server.py
+```
+
+The certificate pin the app expects is
+`openssl x509 -in certs/cert.pem -outform der | openssl dgst -sha256 -binary | base64`.
 
 Examples:
 

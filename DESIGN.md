@@ -279,6 +279,35 @@ These are verified by unit tests (ciphertext on disk, wrong-key cannot open,
 tamper rejected, minimisation erases bytes but keeps the receipt) and by an
 end-to-end run.
 
+## Security: data in transit
+
+- **TLS certificate pinning.** `CertificatePinner` holds a set of pinned
+  certificate fingerprints (base64 SHA-256 of the DER). The transport's
+  `URLSession` server-trust challenge validates the presented chain against the
+  pins and rejects a mismatch, defeating a man-in-the-middle that presents a
+  different certificate even if it is validly issued. Pinning is inert when no
+  pins are configured, so the local http mock still works. Whole-certificate
+  pinning is used for a self-contained, testable implementation; production would
+  usually pin the public key (SPKI), which survives certificate renewal, using
+  the same evaluation flow.
+- **Authentication.** Each upload carries an `Authorization: Bearer` token read
+  from the Keychain (`AuthTokenStore`). The request builder is a pure static
+  function, so the header logic is unit-tested directly.
+- Verified end to end against a self-signed HTTPS mock: the correct pin uploads
+  successfully, a wrong pin is rejected (nothing reaches the server), and a
+  missing token yields a 401 that the manager records as a permanent failure.
+
+## Security: on-device access
+
+- **Backgrounding privacy screen.** A cover view is shown whenever
+  `scenePhase != .active`, so the snapshot iOS takes on backgrounding does not
+  capture identity thumbnails. The decision is a pure function, unit-tested.
+- **Biometric gate.** `BiometricAuthenticator` (a seam, so it is testable with a
+  fake) gates the queue behind Face ID / Touch ID with a passcode fallback via
+  `LocalAuthentication`. It degrades open when no biometrics or passcode are
+  configured, so a bare device is not locked out. The gate logic is unit-tested
+  (unlock on success, stay locked on failure, open when disabled).
+
 ## Testing strategy
 
 - **Unit tests target the logic that matters**, behind the seams: the store
@@ -314,15 +343,12 @@ end-to-end run.
 
 ## Future work
 
-Security, in priority order:
+Security:
 
-- **Transport hardening**: TLS only, certificate/public-key pinning in the
-  `URLSession` auth challenge, and an `Authorization: Bearer` token from the
-  Keychain. Optionally App Attest so the backend only accepts genuine app
-  instances.
-- **Backgrounding privacy screen**: cover the UI on `scenePhase .inactive` so an
-  identity thumbnail cannot leak into the app-switcher snapshot.
-- **Biometric gate** (LocalAuthentication) to open the queue.
+- **Pin the public key (SPKI)** rather than the whole certificate, so pinning
+  survives certificate renewal when the key is reused.
+- **App Attest / DeviceCheck** so the backend only accepts genuine app instances.
+- Token refresh and a real sign-in flow feeding `AuthTokenStore`.
 
 Other:
 
